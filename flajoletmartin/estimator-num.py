@@ -1,5 +1,5 @@
 import math
-import farmhash
+import mmh3
 
 class FlajoletMartin(object):
     """Flajolet & Martin's probabilitic algorithm for
@@ -25,14 +25,15 @@ class FlajoletMartin(object):
             else:
                 self.distinctitems[item] = 1
 
-        self.M = len(self.dataitems)
+        #self.M = len(self.dataitems)
+        self.M = 65536
         #self.log_M = int(math.ceil(math.log(self.M, 2)))
         self.log_M = 32
         print('M: {} log M: {}'.format(self.M, self.log_M))
 
     def get_hash(self, item, seed):
         """use a randomly chosen new hash function to get hash"""
-        return farmhash.hash32withseed(item, seed)
+        return mmh3.hash(item, seed)
 
     @staticmethod
     def ls1b(h):
@@ -93,7 +94,7 @@ class FlajoletMartin(object):
         # construct bitsketch
         try:
             for r in range(0, self.r):
-                for m in range(0, self.M):
+                for m in range(0, self.total_size()):
                     h = self.get_hash(self.dataitems[m], r)
                     self.bitsketch[r*self.log_M+self.ls1b(h)] = 1
         except IndexError:
@@ -112,7 +113,7 @@ class FlajoletMartin(object):
         return R
 
 def main():
-    estimator = FlajoletMartin('./flajoletmartin/essay.txt')
+    estimator = FlajoletMartin('./testfile.txt')
 
     print(
         'Total items: {} \nDistinct items count: {}\n'.format(
@@ -122,11 +123,11 @@ def main():
     )
 
     print('Flajolet-Martin counts')
-    r = 4
+    r = 10
     while r <= 1024:
         print('Estimated count for m[{}]: {}'.format(r, estimator.estimate_cardinality(r)))
         #estimator.cleanup()
-        r *= 2
+        r += 10
 
 if __name__ == '__main__':
     main()
