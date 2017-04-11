@@ -89,6 +89,7 @@ class FlajoletMartin(object):
         """estimate set cardinality"""
         assert r
         self.r = r
+        R = 0.0
         self.reset_bitsketch()
 
         # construct bitsketch
@@ -101,7 +102,7 @@ class FlajoletMartin(object):
             print('index error at : [{}][{}] for hash {}'.format(r, self.ls1b(h), h))
             raise
 
-        total, leftmostZero = 0, self.log_M
+        total, leftmostZero = 0.0, self.log_M
         for r in range(0, self.r):
             for m in range(self.log_M-1, -1, -1):
                 if not self.bitsketch[r*self.log_M+m]:
@@ -109,7 +110,8 @@ class FlajoletMartin(object):
                     #break
             total += leftmostZero
 
-        R = FlajoletMartin.PHI * pow(2, total/self.r)
+        print('{}'.format(total/float(self.r)))
+        R = FlajoletMartin.PHI * pow(2.0, total/float(self.r))
         return R
 
 def main():
@@ -123,11 +125,11 @@ def main():
     )
 
     print('Flajolet-Martin counts')
-    r = 10
+    r = 2
     while r <= 1024:
         print('Estimated count for m[{}]: {}'.format(r, estimator.estimate_cardinality(r)))
         #estimator.cleanup()
-        r += 10
+        r *= 2
 
 if __name__ == '__main__':
     main()
