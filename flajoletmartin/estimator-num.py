@@ -7,7 +7,7 @@ class FlajoletMartin(object):
 
     PHI = 1.2928
 
-    def __init__(self, filename, sketchsize=32,):
+    def __init__(self, filename, sketchsize=32):
         self.r = 0
         self.bitsketch = []
         self.bitsketchsize = sketchsize
@@ -22,7 +22,7 @@ class FlajoletMartin(object):
                 self.distinctitems[item] += 1
             else:
                 self.distinctitems[item] = 1
-
+ 
     def get_hash(self, item, seed):
         """use a randomly chosen hash function to generate hash"""
         return mmh3.hash(item, seed)
@@ -30,26 +30,9 @@ class FlajoletMartin(object):
     @staticmethod
     def ls1b(h):
         """position of least significant 1-bit"""
+        # code reference: https://github.com/svengato/FlajoletMartin
         # hash is a 32bit number
         return 32 if not h else (h&-h).bit_length()-1
-
-    @staticmethod
-    def ls0b(h):
-        """NOT USED - position of least significant 0-bit"""
-        h_inv = ~h
-        # hash is a 32bit number
-        return 32 if not h else (h_inv&-h_inv).bit_length()-1
-
-    @staticmethod
-    def val_ls1b(h):
-        """NOT USED - 2^(position of least significant 1-bit)"""
-        return h & (-h)
-
-    @staticmethod
-    def val_ls0b(h):
-        """NOT USED - 2^(position of least significant 0-bit)
-        NOT USED"""
-        return (~h) & (h + 1)
 
     def total_size(self):
         """total items"""
