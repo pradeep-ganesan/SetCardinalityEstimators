@@ -9,8 +9,10 @@ class TwoLevelSketch(object):
     distinct value estimation"""
 
     FLAJOLET_MARTIN_PHI = 1.2928
+    STREAM_ID = 0
 
-    def __init__(self, sketchsize=64, numhash=256):
+    def __init__(self, sketchsize=64, numhash=256, id=None):
+        self.streamid = id or (self.STREAM_ID + 1)
         self.numhash = numhash
         self.bitsketchsize = sketchsize
         self.bitsketch = [0] * self.bitsketchsize * self.numhash
