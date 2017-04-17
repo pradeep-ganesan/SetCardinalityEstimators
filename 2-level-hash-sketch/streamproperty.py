@@ -2,7 +2,7 @@
 
 def empty(stream, bucket):
     """checks if bucket of stream is empty"""
-    if stream.sketchcounter[bucket * (stream.bitsketchsize + 1)] == 0:
+    if stream.sketchcounter[bucket * (stream.bitsketchsize+1)] == 0:
         return True
     return False
 
@@ -24,7 +24,7 @@ def identical_singleton(streamA, streamB, bucket):
     assert streamA.bitsketchsize == streamB.bitsketchsize
     if not singleton(streamA, bucket) or not singleton(streamB, bucket):
         return False
-    for i in range(1, streamA.bitsketchsize):
+    for i in range(1, streamA.bitsketchsize+1):
         if(
                 streamA.sketchcounter[bucket * (streamA.bitsketchsize+1) + i] > 0
                 and streamB.sketchcounter[bucket * (streamB.bitsketchsize+1) + i] > 0

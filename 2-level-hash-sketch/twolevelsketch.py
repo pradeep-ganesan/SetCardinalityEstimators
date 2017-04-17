@@ -1,36 +1,43 @@
 import math
 import farmhash
 import logging
+import streamproperty
+from ... import dvc
 
 logme = logging.getLogger('estimator')
 
-class TwoLevelSketch(object):
+class TwoLevelSketch(dvc.DVC):
     """Ganguly et al 2-level hash sketch for
     distinct value estimation"""
 
     FLAJOLET_MARTIN_PHI = 1.2928
-    STREAM_ID = 0
 
-    def __init__(self, sketchsize=64, numhash=256, id=None):
-        self.streamid = id or (self.STREAM_ID + 1)
+    def __init__(
+            self,
+            sketchsize=64,
+            numhash=256,
+            epsilon=0.05,
+            beta=1.05,
+            sid=None
+    ):
+        super(TwoLevelSketch, self).__init__(sid)
+        self.epsilon = epsilon
+        self.beta = beta
+        self.union_estimate = None
         self.numhash = numhash
         self.bitsketchsize = sketchsize
         self.bitsketch = [0] * self.bitsketchsize * self.numhash
         self.sketchcounter = [0] * (self.bitsketchsize + 1) * self.numhash
         if __debug__:
             self.dataitems = []
-            self.distinctitems = {}
+            self.distinctitems = set()
 
     def add(self, item):
-        """fetch stream items"""
         self.update_sketch(item)
 
         if __debug__:
             self.dataitems.append(item)
-            if self.distinctitems.get(item):
-                self.distinctitems[item] += 1
-            else:
-                self.distinctitems[item] = 1
+            self.distinctitems.add(item)
 
     def total_items(self):
         """total items"""
@@ -88,12 +95,125 @@ class TwoLevelSketch(object):
 
         return R
 
+    def __and__(self, other):
+        """estimate for |A^B|"""
+        assert self.bitsketchsize == other.bitsketchsize
+        assert self.numhash == other.numhash
+
+        def atomic_intersect_estimator():
+            index = int(
+                math.log(
+                    (self.beta - (
+                        self.union_estimate
+                        )
+                    ) / (1.0 - self.epsilon)
+                )
+            )
+            if not streamproperty.singleton_union(self, other, index):
+                return None
+            estimate = 0.0
+            if(
+                    streamproperty.singleton(self, index) and
+                    streamproperty.singleton(other, index)
+            ):
+                estimate = 1.0
+            return estimate
+
+        total, count = 0.0, 0.0
+        for i in range(1, self.numhash):
+            # --\__('-')__/-- what the heck is happening here?
+            # index is never going to change in the for loop
+            atomic_estimate = atomic_intersect_estimator()
+            if atomic_estimate is not None:
+                total += atomic_estimate
+                count += 1.0
+        return (total * self.union_estimate / count)
+
+    def __or__(self, other):
+        assert self.bitsketchsize == other.bitsketchsize
+        assert self.numhash == other.numhash
+
+        f = (1.0 + self.epsilon) * float(self.bitsketchsize / 8.0)
+        index = 0
+        while True:
+            count = 0.0
+            for i in range(0, self.numhash):
+                if(
+                        # --\__('-')__/-- what is happening here?
+                        # index is never going to change in the for loop
+                        not streamproperty.empty(self, index) or
+                        not streamproperty.empty(other, index)
+                ):
+                    count += 1.0
+                ######
+                # May be it is
+                # if(
+                #        not streamproperty.empty(self, i) or
+                #        not streamproperty.empty(other, i)
+                # ):
+            if count <= f:
+                break
+            index += 1
+
+        p = count / float(index)
+        R = pow(2.0, float(index + 1))
+        return math.log((1.0 - p), 2)/math.log((1.0 - (1.0/R)), 2)
+
+    def set_diff_estimator(self, other, union_estimate):
+        """estimate for |A-B|"""
+
+        def atomic_diff_estimator():
+            index = int(
+                math.log(
+                    (self.beta - (
+                        self.union_estimate or union_estimate
+                        )
+                    ) / (1.0 - self.epsilon)
+                )
+            )
+            if not streamproperty.singleton_union(self, other, index):
+                return None
+            estimate = 0.0
+            if(
+                    streamproperty.singleton(self, index) and
+                    streamproperty.empty(other, index)
+            ):
+                estimate = 1.0
+            return estimate
+
+        total, count = 0.0, 0.0
+        for i in range(1, self.numhash):
+            atomic_estimate = atomic_diff_estimator()
+            if atomic_estimate is not None:
+                total += atomic_estimate
+                count += 1.0
+        return (total * (self.union_estimate or union_estimate) / count)
+
+    def clear(self):
+        self.bitsketch = []
+        self.sketchcounter = []
+        if __debug__:
+            self.dataitems = []
+            self.distinctitems.clear()
+
+    def copy(self, sourcestream):
+        self.bitsketchsize = sourcestream.bitsketchsize
+        self.numhash = sourcestream.numhash
+        self.bitsketch = sourcestream.bitsketch
+        self.sketchcounter = sourcestream.sketchcounter
+
     def error(self):
         """error rate: x%>0 indicates estimate more than actual by x%
                        x%<0 indicates estimate less than actual by x%
                        x%==0 indicates estimate==actual"""
         if __debug__:
-            err_percent = float(len(self) - self.distinct_items()) / float(self.distinct_items())
+            err_percent = (
+                float(
+                    len(self) - self.distinct_items()
+                ) / float(
+                    self.distinct_items()
+                )
+            )
             return err_percent
         return None
 
