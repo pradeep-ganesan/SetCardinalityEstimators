@@ -1,47 +1,49 @@
 """property checks of continuous update streams"""
 
-def empty(stream, bucket):
+def empty(stream, skset, bucket):
     """checks if bucket of stream is empty"""
-    if stream.sketchcounter[bucket * (stream.bitsketchsize+1)] == 0:
+    if stream.bitsketchcounter[skset][bucket * (stream.bitsketchsize+1)] == 0:
         return True
     return False
 
-def singleton(stream, bucket):
+def singleton(stream, skset, bucket):
     """checks if bucket of stream is singleton"""
     for i in range(1, stream.bitsketchsize+1):
         if(
-                stream.sketchcounter[bucket * (stream.bitsketchsize+1) + i] > 0
+                stream.bitsketchcounter[skset][bucket * (stream.bitsketchsize+1) + i] > 0
                 and (
-                    stream.sketchcounter[bucket * (stream.bitsketchsize+1 + i)] >
-                    stream.sketchcounter[bucket * (stream.bitsketchsize+1)]
+                    stream.bitsketchcounter[skset][bucket * (stream.bitsketchsize+1 + i)] >
+                    stream.bitsketchcounter[skset][bucket * (stream.bitsketchsize+1)]
                 )
         ):
             return False
     return True
 
-def identical_singleton(streamA, streamB, bucket):
+def identical_singleton(streamA, streamB, skset, bucket):
     """checks if two streams are singleton at same bucket"""
     assert streamA.bitsketchsize == streamB.bitsketchsize
-    if not singleton(streamA, bucket) or not singleton(streamB, bucket):
+    assert streamA.sketchsets == streamB.sketchsets
+    if not singleton(streamA, skset, bucket) or not singleton(streamB, skset, bucket):
         return False
     for i in range(1, streamA.bitsketchsize+1):
         if(
-                streamA.sketchcounter[bucket * (streamA.bitsketchsize+1) + i] > 0
-                and streamB.sketchcounter[bucket * (streamB.bitsketchsize+1) + i] > 0
+                streamA.bitsketchcounter[skset][bucket * (streamA.bitsketchsize+1) + i] > 0
+                and streamB.bitsketchcounter[skset][bucket * (streamB.bitsketchsize+1) + i] > 0
                 and (
-                    streamA.sketchcounter[bucket * (streamA.bitsketchsize+1 + i)] !=
-                    streamB.sketchcounter[bucket * (streamB.bitsketchsize+1) + i]
+                    streamA.bitsketchcounter[skset][bucket * (streamA.bitsketchsize+1 + i)] !=
+                    streamB.bitsketchcounter[skset][bucket * (streamB.bitsketchsize+1) + i]
                 )
         ):
             return False
     return True
 
-def singleton_union(streamA, streamB, bucket):
+def singleton_union(streamA, streamB, skset, bucket):
     """if union of bucket of both streams is a singleton"""
     assert streamA.bitsketchsize == streamB.bitsketchsize
+    assert streamA.sketchsets == streamB.sketchsets
     if(
-            (singleton(streamA, bucket) and empty(streamB, bucket))
-            or (singleton(streamB, bucket) and empty(streamA, bucket))
+            (singleton(streamA, skset, bucket) and empty(streamB, skset, bucket))
+            or (singleton(streamB, skset, bucket) and empty(streamA, skset, bucket))
     ):
         return True
-    return identical_singleton(streamA, streamB, bucket)
+    return identical_singleton(streamA, streamB, skset, bucket)

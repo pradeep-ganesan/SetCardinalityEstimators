@@ -20,14 +20,27 @@ class TwoLevelSketch(dvc.DVC):
             beta=1.05,
             sid=None
     ):
+        def find_sketchsets():
+            "calculate r"
+            pass
+
         super(TwoLevelSketch, self).__init__(sid)
         self.epsilon = epsilon
         self.beta = beta
         self.union_estimate = None
         self.numhash = numhash
+        self.sketchsets = 8
+
         self.bitsketchsize = sketchsize
-        self.bitsketch = [0] * self.bitsketchsize * self.numhash
-        self.sketchcounter = [0] * (self.bitsketchsize + 1) * self.numhash
+        self.bitsketchset = []
+        self.bitsketchsetcounter = []
+        for i in range(0, self.sketchsets):
+            self.bitsketchset.append([0] * self.bitsketchsize * self.numhash)
+            self.bitsketchsetcounter.append(
+                [0] * (self.bitsketchsize + 1) * self.numhash
+            )
+        #self.bitsketch = [0] * self.bitsketchsize * self.numhash
+        #self.sketchcounter = [0] * (self.bitsketchsize + 1) * self.numhash
         if __debug__:
             self.dataitems = []
             self.distinctitems = set()
@@ -66,18 +79,23 @@ class TwoLevelSketch(dvc.DVC):
             return self.bitsketchsize if not h else (h&-h).bit_length()-1
 
         # update bitsketch and sketch counters
-        for r in range(0, self.numhash):
-            h = get_hash(item, r)
-            try:
-                pos = least_sig_1bit(h)
-                self.bitsketch[r * self.bitsketchsize + pos] = 1
-                self.sketchcounter[r * (self.bitsketchsize+1)] += 1
-                self.sketchcounter[r * (self.bitsketchsize+1) + (pos+1)] += 1
-            except IndexError:
-                logme.error(
-                    'index error at : %d %d for hash %s',
-                    r, pos, h
-                )
+        h_n = self.sketchsets * self.numhash
+        for skset in range(0, self.sketchsets):
+            for r in range(0, self.numhash):
+                h = get_hash(item, h_n)
+                try:
+                    pos = least_sig_1bit(h)
+                    self.bitsketchset[skset][r * self.bitsketchsize + pos] = 1
+                    self.bitsketchsetcounter[skset][r * (self.bitsketchsize+1)] += 1
+                    self.bitsketchsetcounter[skset][
+                        r * (self.bitsketchsize+1) + (pos+1)
+                    ] += 1
+                except IndexError:
+                    logme.error(
+                        'index error at : %d %d for hash %s',
+                        r, pos, h
+                    )
+                h_n -= 1
 
     def __len__(self):
         """flajoletmartin cardinality estimation"""
@@ -85,22 +103,20 @@ class TwoLevelSketch(dvc.DVC):
 
         # estimate the count of distinct values
         total, leftmostzero = 0.0, self.bitsketchsize
-        for r in range(0, self.numhash):
-            for m in range(0, self.bitsketchsize, 1):
-                if not self.bitsketch[r*self.bitsketchsize+m]:
-                    leftmostzero = m
-                    break
-            total += leftmostzero
-        R = self.FLAJOLET_MARTIN_PHI * pow(2.0, total/float(self.numhash))
+        for skset in range(0, self.sketchsets):
+            for r in range(0, self.numhash):
+                for m in range(0, self.bitsketchsize, 1):
+                    if not self.bitsketchset[skset][r*self.bitsketchsize+m]:
+                        leftmostzero = m
+                        break
+                total += leftmostzero
+            R += self.FLAJOLET_MARTIN_PHI * pow(2.0, total/float(self.numhash))
 
-        return R
+        return R/float(skset)
 
     def __and__(self, other):
         """estimate for |A^B|"""
-        assert self.bitsketchsize == other.bitsketchsize
-        assert self.numhash == other.numhash
-
-        def atomic_intersect_estimator():
+        def atomic_intersect_estimator(skset):
             index = int(
                 math.log(
                     (self.beta - (
@@ -109,48 +125,35 @@ class TwoLevelSketch(dvc.DVC):
                     ) / (1.0 - self.epsilon)
                 )
             )
-            if not streamproperty.singleton_union(self, other, index):
+            if not streamproperty.singleton_union(self, other, skset, index):
                 return None
             estimate = 0.0
             if(
-                    streamproperty.singleton(self, index) and
-                    streamproperty.singleton(other, index)
+                    streamproperty.singleton(self, skset, index) and
+                    streamproperty.singleton(other, skset, index)
             ):
                 estimate = 1.0
             return estimate
 
         total, count = 0.0, 0.0
-        for i in range(1, self.numhash):
-            # --\__('-')__/-- what the heck is happening here?
-            # index is never going to change in the for loop
-            atomic_estimate = atomic_intersect_estimator()
+        for skset in range(0, self.sketchsets):
+            atomic_estimate = atomic_intersect_estimator(skset)
             if atomic_estimate is not None:
                 total += atomic_estimate
                 count += 1.0
-        return (total * self.union_estimate / count)
+        return total * self.union_estimate / count
 
     def __or__(self, other):
-        assert self.bitsketchsize == other.bitsketchsize
-        assert self.numhash == other.numhash
-
         f = (1.0 + self.epsilon) * float(self.bitsketchsize / 8.0)
         index = 0
         while True:
             count = 0.0
-            for i in range(0, self.numhash):
+            for skset in range(0, self.sketchsets):
                 if(
-                        # --\__('-')__/-- what is happening here?
-                        # index is never going to change in the for loop
-                        not streamproperty.empty(self, index) or
-                        not streamproperty.empty(other, index)
+                        not streamproperty.empty(self, skset, index) or
+                        not streamproperty.empty(other, skset, index)
                 ):
                     count += 1.0
-                ######
-                # May be it is
-                # if(
-                #        not streamproperty.empty(self, i) or
-                #        not streamproperty.empty(other, i)
-                # ):
             if count <= f:
                 break
             index += 1
@@ -162,7 +165,7 @@ class TwoLevelSketch(dvc.DVC):
     def set_diff_estimator(self, other, union_estimate):
         """estimate for |A-B|"""
 
-        def atomic_diff_estimator():
+        def atomic_diff_estimator(skset):
             index = int(
                 math.log(
                     (self.beta - (
@@ -171,27 +174,27 @@ class TwoLevelSketch(dvc.DVC):
                     ) / (1.0 - self.epsilon)
                 )
             )
-            if not streamproperty.singleton_union(self, other, index):
+            if not streamproperty.singleton_union(self, other, skset, index):
                 return None
             estimate = 0.0
             if(
-                    streamproperty.singleton(self, index) and
-                    streamproperty.empty(other, index)
+                    streamproperty.singleton(self, skset, index) and
+                    streamproperty.empty(other, skset, index)
             ):
                 estimate = 1.0
             return estimate
 
         total, count = 0.0, 0.0
-        for i in range(1, self.numhash):
-            atomic_estimate = atomic_diff_estimator()
+        for skset in range(0, self.sketchsets):
+            atomic_estimate = atomic_diff_estimator(skset)
             if atomic_estimate is not None:
                 total += atomic_estimate
                 count += 1.0
-        return (total * (self.union_estimate or union_estimate) / count)
+        return total * (self.union_estimate or union_estimate) / count
 
     def clear(self):
-        self.bitsketch = []
-        self.sketchcounter = []
+        self.bitsketchset = []
+        self.bitsketchsetcounter = []
         if __debug__:
             self.dataitems = []
             self.distinctitems.clear()
@@ -199,10 +202,17 @@ class TwoLevelSketch(dvc.DVC):
     def copy(self, sourcestream):
         self.bitsketchsize = sourcestream.bitsketchsize
         self.numhash = sourcestream.numhash
-        self.bitsketch = sourcestream.bitsketch
-        self.sketchcounter = sourcestream.sketchcounter
+        self.sketchsets = sourcestream.sketchsets
+        self.bitsketchset = []
+        self.bitsketchsetcounter = []
+        for skset in range(0, self.sketchsets):
+            self.bitsketchset.append(sourcestream.bitsketchset[skset][:])
+            self.bitsketchsetcounter.append(sourcestream.bitsketchsetcounter[skset][:])
+        if __debug__:
+            self.dataitems = sourcestream.dataitems[:]
+            self.distinctitems = set(sourcestream.distinctitems)
 
-    def error(self):
+    def relative_error(self):
         """error rate: x%>0 indicates estimate more than actual by x%
                        x%<0 indicates estimate less than actual by x%
                        x%==0 indicates estimate==actual"""
@@ -241,7 +251,7 @@ def main():
             )
         )
     if __debug__:
-        print('Error rate: {}%'.format(get_continuous_stream.estimator.error()))
+        print('Error rate: {}%'.format(get_continuous_stream.estimator.relative_error()))
 
 if __name__ == '__main__':
     main()
