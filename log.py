@@ -4,6 +4,9 @@ def initialize():
     logme = logging.getLogger('estimator')
     logme.setLevel(logging.DEBUG)
 
+    with open('twolevelsketch.log', 'w'):
+        pass
+
     logfile = logging.FileHandler('twolevelsketch.log')
     logfile.setLevel(logging.DEBUG)
 
@@ -11,7 +14,7 @@ def initialize():
     console.setLevel(logging.ERROR)
 
     formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        '%(asctime)s - [%(filename)s:%(lineno)4s - %(funcName)s()] - %(levelname)s - %(message)s'
         )
     logfile.setFormatter(formatter)
     console.setFormatter(formatter)

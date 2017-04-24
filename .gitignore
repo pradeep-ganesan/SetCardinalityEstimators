@@ -1,4 +1,4 @@
 .vscode
-testfile.txt
+testfile*.txt
 *.pyc
 *.log

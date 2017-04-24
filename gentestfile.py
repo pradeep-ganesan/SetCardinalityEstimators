@@ -1,12 +1,12 @@
 from random import randint
 
 def generate():
-    with open('testfile.txt', 'w') as fp:
+    with open('./testfile2.txt', 'w') as fp:
         i = 0
-        while i < 1000:
+        while i < 1:
             j = 0
-            while j < 10:
-                fp.write('{} '.format(randint(0, 256)))
+            while j < 10000:
+                fp.write('{} '.format(randint(1, 4000)))
                 j += 1
             i+=1
 

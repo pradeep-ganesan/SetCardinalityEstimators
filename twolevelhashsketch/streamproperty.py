@@ -9,15 +9,24 @@ def empty(sketchcounters, sketchsize, bucket):
     if sketchcounters[bucket * (sketchsize+1)] == 0:
         return True
     return False
+    '''    logme.debug(
+        'len(sketchcounters):%d sketcounters[%d] bucket:%d sketchsize:%d',
+        len(sketchcounters),
+        bucket*(sketchsize+1),
+        bucket,
+        sketchsize
+    )'''
 
 def singleton(sketchcounters, sketchsize, bucket):
     """checks if bucket of sketch is singleton"""
+    if empty(sketchcounters, sketchsize, bucket):
+        return False
     for i in range(1, sketchsize+1):
         if(
-                sketchcounters[bucket * (sketchsize+1) + i] > 0
+                sketchcounters[bucket * (sketchsize+1)] > 0
                 and (
-                    sketchcounters[bucket * (sketchsize+1 + i)] >
-                    sketchcounters[bucket * (sketchsize+1)]
+                    sketchcounters[bucket * (sketchsize+1)] >
+                    sketchcounters[bucket * (sketchsize+1) + i]
                 )
         ):
             return False
@@ -28,6 +37,7 @@ def identical_singleton(sketchcountersA, sketchcountersB, sketchsize, bucket):
     if (not singleton(sketchcountersA, sketchsize, bucket)
             or not singleton(sketchcountersB, sketchsize, bucket)
        ):
+        logme.debug('Not identical')
         return False
     for i in range(1, sketchsize+1):
         if(

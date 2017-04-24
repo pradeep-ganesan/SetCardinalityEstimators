@@ -1,24 +1,25 @@
 import math, farmhash, logging
 import log
 import streamproperty
-from ... import dvc
+import dvc
 
 log.initialize()
 logme = logging.getLogger('estimator')
 
 class TwoLevelSketch(dvc.DVC):
     """Ganguly et al 2-level hash sketch for
-    distinct value estimation"""
+    distinct value estimation VLDB05"""
 
     FLAJOLET_MARTIN_PHI = 1.2928
 
     def __init__(
             self,
             sketchsize=64,
-            numhash=256,
-            epsilon=0.20,
-            beta=1.05,
-            sid=None
+            numhash=64,
+            epsilon=0.95,
+            beta=2.0,
+            sid=None,
+            debug=True
     ):
         def find_sketchsets():
             "calculate r"
@@ -29,7 +30,7 @@ class TwoLevelSketch(dvc.DVC):
         self.beta = beta
         self.union_estimate = None
         # number of hash functions
-        self.sketchsets = 8
+        self.sketchsets = numhash
 
         self.bitsketchsize = sketchsize
         self.bitsketchset = []
@@ -39,24 +40,25 @@ class TwoLevelSketch(dvc.DVC):
             self.bitsketchsetcounter.append(
                 [0] * (self.bitsketchsize + 1) * self.bitsketchsize
             )
-        if __debug__:
+        self.debug = debug
+        if debug:
             self.dataitems = []
             self.distinctitems = set()
 
     def add(self, item):
         self.update_sketch(item)
 
-        if __debug__:
+        if self.debug:
             self.dataitems.append(item)
             self.distinctitems.add(item)
 
     def total_items(self):
         """total items"""
-        return len(self.dataitems) if __debug__ else None
+        return len(self.dataitems) if self.debug else None
 
     def distinct_items(self):
         """actual number of distinct items"""
-        return len(self.distinctitems) if __debug__ else None
+        return len(self.distinctitems) if self.debug else None
 
     def update_sketch(self, item):
         """construct bitsketch and sketch counters"""
@@ -114,18 +116,21 @@ class TwoLevelSketch(dvc.DVC):
         """estimate for |A ^ B|"""
         assert self.bitsketchsize == other.bitsketchsize
         assert self.sketchsets == other.sketchsets
+        self.union_estimate = (self | other)
         def atomic_intersect_estimator(sketchcountersA, sketchcountersB):
             index = int(
                 math.log(
-                    (self.beta - (
-                        self.union_estimate
-                        )
-                    ) / (1.0 - self.epsilon)
+                    (self.beta * self.union_estimate)
+                    / (1.0 - self.epsilon)
                 )
             )
+            logme.debug('index : %d', int(index))
+            logme.info('sketchA %s', sketchcountersA[index * (self.bitsketchsize+1) : index * (self.bitsketchsize+1) + self.bitsketchsize])
+            logme.info('sketchB %s', sketchcountersB[index * (self.bitsketchsize+1) : index * (self.bitsketchsize+1) + self.bitsketchsize])
             if not streamproperty.singleton_union(
                     sketchcountersA, sketchcountersB, self.bitsketchsize, index
                 ):
+                logme.debug('No estimate for index: %d', int(index))
                 return None
             estimate = 0.0
             if(
@@ -133,6 +138,7 @@ class TwoLevelSketch(dvc.DVC):
                     streamproperty.singleton(sketchcountersB, self.bitsketchsize, index)
             ):
                 estimate = 1.0
+            logme.debug('Estimate for index: %d', int(index))
             return estimate
 
         total, count = 0.0, 0.0
@@ -143,7 +149,8 @@ class TwoLevelSketch(dvc.DVC):
             if atomic_estimate is not None:
                 total += atomic_estimate
                 count += 1.0
-        return total * self.union_estimate / count
+        logme.debug('sum = %f count = %f', total, count)
+        return total * self.union_estimate / count if total and count else 0.0
 
     def __or__(self, other):
         """estimate for |A U B|"""
@@ -156,15 +163,16 @@ class TwoLevelSketch(dvc.DVC):
             count = 0.0
             for r in range(0, self.sketchsets):
                 if(
-                        not streamproperty.empty(self.bitsketchset[r], self.bitsketchsize, index) or
-                        not streamproperty.empty(other.bitsketchset[r], self.bitsketchsize, index)
+                        not streamproperty.empty(self.bitsketchsetcounter[r], self.bitsketchsize, index) or
+                        not streamproperty.empty(other.bitsketchsetcounter[r], self.bitsketchsize, index)
                 ):
                     count += 1.0
             if count <= f:
                 break
             index += 1
+            #logme.debug('bucket index: %d', index)
 
-        p = count / float(r)
+        p = count / float(self.sketchsets)
         R = pow(2.0, float(index + 1))
         return math.log((1.0 - p), 2)/math.log((1.0 - (1.0/R)), 2)
 
@@ -176,10 +184,8 @@ class TwoLevelSketch(dvc.DVC):
         def atomic_diff_estimator(sketchcountersA, sketchcountersB):
             index = int(
                 math.log(
-                    (self.beta - (
-                        self.union_estimate or union_estimate
-                        )
-                    ) / (1.0 - self.epsilon)
+                    (self.beta * (self.union_estimate or union_estimate))
+                    / (1.0 - self.epsilon)
                 )
             )
             if not streamproperty.singleton_union(
@@ -208,7 +214,7 @@ class TwoLevelSketch(dvc.DVC):
         """reset sketches"""
         self.bitsketchset = []
         self.bitsketchsetcounter = []
-        if __debug__:
+        if self.debug:
             self.dataitems = []
             self.distinctitems.clear()
 
@@ -221,15 +227,15 @@ class TwoLevelSketch(dvc.DVC):
         for r in range(0, self.sketchsets):
             self.bitsketchset.append(list(sourcestream.bitsketchset[r][:]))
             self.bitsketchsetcounter.append(list(sourcestream.bitsketchsetcounter[r][:]))
-        if __debug__:
+        if self.debug:
             self.dataitems = list(sourcestream.dataitems[:])
             self.distinctitems = set(sourcestream.distinctitems)
 
     def relative_error(self):
-        """error rate: x%>0 indicates estimate more than actual by x%
-                       x%<0 indicates estimate less than actual by x%
-                       x%==0 indicates estimate==actual"""
-        if __debug__:
+        """error : x%>0 indicates estimate more than actual by x%
+                   x%<0 indicates estimate less than actual by x%
+                   x%==0 indicates estimate==actual"""
+        if self.debug:
             err_percent = (
                 float(
                     len(self) - self.distinct_items()
@@ -251,7 +257,7 @@ def main():
     get_continuous_stream.estimator = None
 
     get_continuous_stream('./testfile.txt')
-    if __debug__:
+    if get_continuous_stream.estimator.debug:
         print(
             'Total items: {} \nDistinct items count: {}\n'.format(
                 get_continuous_stream.estimator.total_items(),
@@ -263,7 +269,7 @@ def main():
             len(get_continuous_stream.estimator)
             )
         )
-    if __debug__:
+    if get_continuous_stream.estimator.debug:
         print('Error rate: {}%'.format(get_continuous_stream.estimator.relative_error()))
 
 if __name__ == '__main__':
